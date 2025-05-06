@@ -5,3 +5,4 @@ yfinance
 vaderSentiment
 python-dotenv
 requests
+tweepy

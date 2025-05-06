@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 import traceback
 import plotly.express as px
-
+from src.news_api import fetch_tweets, analyze_tweet_sentiment_vader
 from src.fetch_stock_data import fetch_stock_data
 from src.news_api import fetch_news
 from src.sentiment_analysis import analyze_sentiment_vader
@@ -39,11 +39,42 @@ def get_news_sentiment(symbol, api_key):
     sentiments = [analyze_sentiment_vader(article['title']) for article in news]
     return news, sentiments
 
+
+# Create the Candlestick chart
+# Create the Candlestick chart
+def create_candlestick_chart(data):
+    # Ensure that the data contains the necessary columns
+    if 'Open' not in data or 'High' not in data or 'Low' not in data or 'Close' not in data:
+        st.error("Missing one or more of the necessary columns: 'Open', 'High', 'Low', 'Close'")
+        return None
+
+    fig = go.Figure(data=[go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name='Candlestick Chart'
+    )])
+
+    fig.update_layout(
+        title=f'{symbol} Stock Price Candlestick Chart',
+        xaxis_title='Date',
+        yaxis_title='Price (USD)',
+        xaxis_rangeslider_visible=False,
+    )
+
+    return fig
+
+
 # Fetch Stock Data
 try:
     data = get_data(symbol, period, interval)
 
     if data is not None and isinstance(data, pd.DataFrame) and not data.empty and len(data) >= 2:
+        # Rename columns
+        data.columns = ['Close', 'High', 'Low', 'Open', 'Volume']
+
         current_price = float(data['Close'].iloc[-1])
         previous_price = float(data['Close'].iloc[-2])
         price_change = current_price - previous_price
@@ -59,6 +90,18 @@ try:
 
         st.write(f"Displaying {symbol} Stock Data:")
         st.dataframe(data)
+
+        # Line chart for stock price
+        chart_data = pd.DataFrame(data['Close'])
+        st.subheader(f"{symbol} Closing Price Over Time")
+        st.line_chart(chart_data)
+
+        # Candlestick chart
+        candlestick_fig = create_candlestick_chart(data)
+        if candlestick_fig:
+            st.subheader(f"{symbol} Candlestick Chart")
+            st.plotly_chart(candlestick_fig, use_container_width=True)
+
     else:
         st.warning("Insufficient stock data to calculate current price.")
 
@@ -66,10 +109,7 @@ except Exception as e:
     st.error(f"Error fetching stock data: {e}")
     st.text(traceback.format_exc())
 
-# Line chart for stock price
-chart_data = pd.DataFrame(data['Close'])
-st.subheader(f"{symbol} Closing Price Over Time")
-st.line_chart(chart_data)
+
 
 # News Sentiment Section
 api_key = os.getenv('NEWS_API_KEY')
@@ -196,6 +236,54 @@ if api_key:
 
 else:
     st.error("Missing NEWS_API_KEY in environment.")
+
+
+
+
+
+
+
+# Fetch and Analyze Tweet Sentiment
+if symbol:
+    tweet_data = fetch_tweets(symbol)  # Fetch tweets for the given symbol
+    tweet_sentiments = analyze_tweet_sentiment_vader(tweet_data)  # Analyze sentiment of tweets
+
+    # Calculate Sentiment Distribution
+    positive = len([s for s in tweet_sentiments if s > 0.05])
+    negative = len([s for s in tweet_sentiments if s < -0.05])
+    neutral = len([s for s in tweet_sentiments if -0.05 <= s <= 0.05])
+
+    sentiment_counts = {
+        'Positive': positive,
+        'Negative': negative,
+        'Neutral': neutral
+    }
+
+    # Display sentiment distribution for tweets
+    sentiment_pie_chart = go.Figure(data=[go.Pie(
+        labels=list(sentiment_counts.keys()),
+        values=list(sentiment_counts.values()),
+        hole=0.3,
+        textinfo="percent+label",
+        marker=dict(colors=['green', 'red', 'orange'])
+    )])
+
+    sentiment_pie_chart.update_layout(
+        title=f"Sentiment Distribution for {symbol} Tweets",
+        title_x=0.5
+    )
+
+    st.plotly_chart(sentiment_pie_chart, use_container_width=True)
+
+    # Display some sample tweets
+    st.write("### Sample Tweets:")
+    for tweet, sentiment in zip(tweet_data[:5], tweet_sentiments[:5]):  # Display top 5 tweets
+        sentiment_text = "Positive" if sentiment > 0.05 else "Negative" if sentiment < -0.05 else "Neutral"
+        st.markdown(f"**Tweet**: {tweet['text']}")
+        st.markdown(f"**Sentiment**: {sentiment_text} (Score: {sentiment:.2f})")
+        st.write(f"🕒 {tweet['created_at']}")
+        st.markdown("---")
+
 
 # Sharpe Ratio
 if st.sidebar.button('Calculate Sharpe Ratio'):
